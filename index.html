@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>自动贪吃蛇游戏</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: black;
+        }
+        #sliderContainer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div id="sliderContainer">
+        <label for="foodSlider">食物数量: </label>
+        <input type="range" id="foodSlider" min="1" max="20" value="10">
+        <span id="foodCount">10</span>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gridSize = 20;
+        let snake = { body: [{ x: 400, y: 400 }], direction: { x: 0, y: -gridSize }, color: 'white' };
+        let redFoods = [];
+        let blueFoods = [];
+        let hamiltonianPath = [];
+        let foodCount = 10;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const foodSlider = document.getElementById('foodSlider');
+        const foodCountSpan = document.getElementById('foodCount');
+        foodSlider.addEventListener('input', function() {
+            foodCount = parseInt(foodSlider.value);
+            foodCountSpan.textContent = foodCount;
+        });
+
+        canvas.addEventListener('click', function(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((event.clientX - rect.left) / gridSize) * gridSize;
+            const y = Math.floor((event.clientY - rect.top) / gridSize) * gridSize;
+            blueFoods.push({ x, y });
+        });
+
+        function drawSnake() {
+            ctx.fillStyle = snake.color;
+            snake.body.forEach(segment => {
+                ctx.fillRect(segment.x, segment.y, gridSize, gridSize);
+            });
+        }
+
+        function drawFoods() {
+            ctx.fillStyle = 'white';
+            redFoods.forEach(food => {
+                ctx.fillRect(food.x, food.y, gridSize, gridSize);
+            });
+            ctx.fillStyle = 'red';
+            blueFoods.forEach(food => {
+                ctx.fillRect(food.x, food.y, gridSize, gridSize);
+            });
+        }
+
+        function updateSnake() {
+            const head = { x: snake.body[0].x + snake.direction.x, y: snake.body[0].y + snake.direction.y };
+            snake.body.unshift(head);
+            const blueFoodIndex = blueFoods.findIndex(food => head.x === food.x && head.y === food.y);
+            if (blueFoodIndex !== -1) {
+                blueFoods.splice(blueFoodIndex, 1);
+            } else {
+                const redFoodIndex = redFoods.findIndex(food => head.x === food.x && head.y === food.y);
+                if (redFoodIndex !== -1) {
+                    redFoods.splice(redFoodIndex, 1);
+                } else {
+                    snake.body.pop();
+                }
+            }
+            if (redFoods.length === 0 && blueFoods.length === 0) {
+                placeRedFoods();
+            }
+        }
+
+        function placeRedFoods() {
+            redFoods = [];
+            for (let i = 0; i < foodCount; i++) {
+                let newFood;
+                do {
+                    newFood = {
+                        x: Math.floor(Math.random() * (canvas.width / gridSize)) * gridSize,
+                        y: Math.floor(Math.random() * (canvas.height / gridSize)) * gridSize
+                    };
+                } while (snake.body.some(segment => segment.x === newFood.x && segment.y === newFood.y) ||
+                         redFoods.some(food => food.x === newFood.x && food.y === newFood.y) ||
+                         blueFoods.some(food => food.x === newFood.x && food.y === newFood.y));
+                redFoods.push(newFood);
+            }
+        }
+
+        function checkCollision() {
+            const head = snake.body[0];
+            if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
+                return true;
+            }
+            for (let i = 1; i < snake.body.length; i++) {
+                if (head.x === snake.body[i].x && head.y === snake.body[i].y) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function heuristic(a, b) {
+            return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        }
+
+        function findPath(start, goal) {
+            const openSet = [start];
+            const cameFrom = new Map();
+            const gScore = new Map();
+            const fScore = new Map();
+            gScore.set(start, 0);
+            fScore.set(start, heuristic(start, goal));
+
+            while (openSet.length > 0) {
+                openSet.sort((a, b) => fScore.get(a) - fScore.get(b));
+                const current = openSet.shift();
+
+                if (current.x === goal.x && current.y === goal.y) {
+                    const path = [];
+                    let temp = current;
+                    while (cameFrom.has(temp)) {
+                        path.push(temp);
+                        temp = cameFrom.get(temp);
+                    }
+                    return path.reverse();
+                }
+
+                const neighbors = [
+                    { x: current.x + gridSize, y: current.y },
+                    { x: current.x - gridSize, y: current.y },
+                    { x: current.x, y: current.y + gridSize },
+                    { x: current.x, y: current.y - gridSize }
+                ];
+
+                for (const neighbor of neighbors) {
+                    if (neighbor.x < 0 || neighbor.x >= canvas.width || neighbor.y < 0 || neighbor.y >= canvas.height ||
+                        snake.body.some(segment => segment.x === neighbor.x && segment.y === neighbor.y)) {
+                        continue;
+                    }
+
+                    const tentativeGScore = gScore.get(current) + 1;
+                    if (!gScore.has(neighbor) || tentativeGScore < gScore.get(neighbor)) {
+                        cameFrom.set(neighbor, current);
+                        gScore.set(neighbor, tentativeGScore);
+                        fScore.set(neighbor, tentativeGScore + heuristic(neighbor, goal));
+                        if (!openSet.some(node => node.x === neighbor.x && node.y === neighbor.y)) {
+                            openSet.push(neighbor);
+                        }
+                    }
+                }
+            }
+
+            return [];
+        }
+
+        function generateHamiltonianPath() {
+            const rows = canvas.height / gridSize;
+            const cols = canvas.width / gridSize;
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    if (i % 2 === 0) {
+                        hamiltonianPath.push({ x: j * gridSize, y: i * gridSize });
+                    } else {
+                        hamiltonianPath.push({ x: (cols - 1 - j) * gridSize, y: i * gridSize });
+                    }
+                }
+            }
+        }
+
+        function findFoodDirection() {
+            const head = snake.body[0];
+            let closestFood = null;
+            let shortestPath = [];
+
+            for (const food of blueFoods.concat(redFoods)) {
+                const path = findPath(head, food);
+                if (path.length > 0 && (shortestPath.length === 0 || path.length < shortestPath.length)) {
+                    closestFood = food;
+                    shortestPath = path;
+                }
+            }
+
+            if (blueFoods.length > 0) {
+                closestFood = blueFoods[0];
+                shortestPath = findPath(head, closestFood);
+            }
+
+            if (shortestPath.length > 0) {
+                const nextStep = shortestPath[0];
+                snake.direction = { x: nextStep.x - head.x, y: nextStep.y - head.y };
+            } else {
+                const nextStep = hamiltonianPath.find(step => step.x === head.x && step.y === head.y);
+                const nextIndex = (hamiltonianPath.indexOf(nextStep) + 1) % hamiltonianPath.length;
+                const nextPosition = hamiltonianPath[nextIndex];
+                snake.direction = { x: nextPosition.x - head.x, y: nextPosition.y - head.y };
+            }
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (checkCollision()) {
+                alert('游戏结束');
+                snake.body = [{ x: Math.floor(Math.random() * (canvas.width / gridSize)) * gridSize, y: Math.floor(Math.random() * (canvas.height / gridSize)) * gridSize }];
+                snake.direction = { x: 0, y: -gridSize };
+                placeRedFoods();
+            } else {
+                findFoodDirection();
+                updateSnake();
+                drawSnake();
+                drawFoods();
+            }
+        }
+
+        generateHamiltonianPath();
+        placeRedFoods();
+        setInterval(gameLoop, 100);
+    </script>
+</body>
+</html>
